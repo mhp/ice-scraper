@@ -74,7 +74,7 @@ func makeProductLink(productId ProductId) string {
 		base64.RawURLEncoding.EncodeToString([]byte(productId)))
 }
 
-func makeGCalEvent(ev EventInfo, evCtx EventContext, ts time.Time) (*GCalEvent, error) {
+func makeGCalEvent(ev timestampedEventInfo, evCtx EventContext) (*GCalEvent, error) {
 	// Make sure the timezone is initialised
 	initialiseLocalTimezone()
 
@@ -86,7 +86,7 @@ func makeGCalEvent(ev EventInfo, evCtx EventContext, ts time.Time) (*GCalEvent, 
 			ev.CapacityFreeAcademy-ev.AvailableFreeSpaces,
 			ev.TotalSpaces-ev.AvailableSpaces,
 			makeProductLink(evCtx.Product),
-			ts.In(localTimezone).Format(time.Stamp)),
+			ev.UpdatedAt.In(localTimezone).Format(time.Stamp)),
 	}
 
 	startTime, err := parseTimeLocally(evCtx.Day, ev.StartTime)
@@ -166,12 +166,12 @@ func updateCalendarEvent(c *http.Client, calendarId string, ev *GCalEvent) error
 	return nil
 }
 
-func optionallyUpdateCalendar(ev EventInfo, evCtx EventContext, ts time.Time) {
+func optionallyUpdateCalendar(ev timestampedEventInfo, evCtx EventContext) {
 	if GCalClient == nil {
 		return
 	}
 
-	calEv, err := makeGCalEvent(ev, evCtx, ts)
+	calEv, err := makeGCalEvent(ev, evCtx)
 	if err != nil {
 		log.Print("Can't convert calendar event:", err)
 		return

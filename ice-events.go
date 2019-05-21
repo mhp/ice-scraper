@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 type EventContext struct {
 	Day     string
 	Product ProductId
+}
+
+// timestampedEventInfo embeds the EventInfo with an additional timestamp
+type timestampedEventInfo struct {
+	EventInfo
+	UpdatedAt time.Time
+	Cancelled bool
 }
 
 func checkForEvents(db *bolt.DB, onlyToday bool) error {
@@ -68,15 +76,7 @@ func checkIfEventsStartingSoon(db *bolt.DB) error {
 			return nil
 		}
 		evs.ForEach(func(sess, v []byte) error {
-			// Find last entry if it exists and deserialise it
-			// compare to current.  If different, append current
-			k, lastEvJson := evs.Bucket(sess).Cursor().Last()
-			if k != nil {
-				lastEv := wrappedEventInfo{}
-				if err := json.Unmarshal(lastEvJson, &lastEv); err != nil {
-					return fmt.Errorf("Can't parse last event info (%v): %v", string(k), err)
-				}
-
+			if lastEv, err := getMostRecentDetails(evs.Bucket(sess)); err == nil {
 				t, err := parseTimeLocally(string(todayKey), lastEv.StartTime)
 				if err != nil {
 					return err
@@ -128,7 +128,7 @@ func checkEventsForDay(client *http.Client, b *bolt.Bucket, evCtx EventContext) 
 		// Add 'em
 		now := time.Now()
 		for _, ev := range *evs {
-			if err := updateEvent(evBucket, ev, evCtx, now); err != nil {
+			if err := updateEvent(evBucket, evCtx, timestampedEventInfo{ev, now, false}); err != nil {
 				return fmt.Errorf("Can't write event: %v", err)
 			}
 		}
@@ -136,16 +136,29 @@ func checkEventsForDay(client *http.Client, b *bolt.Bucket, evCtx EventContext) 
 	return nil
 }
 
-// wrappedEventInfo embeds the EventInfo with an additional timestamp
-type wrappedEventInfo struct {
-	EventInfo
-	UpdatedAt time.Time
+
+var ErrNoSuchEvent = errors.New("no such event")
+
+func getMostRecentDetails(sessionBucket *bolt.Bucket) (timestampedEventInfo, error) {
+	// Find last entry if it exists and deserialise it
+	// compare to current.  If different, append current
+	k, lastEvJson := sessionBucket.Cursor().Last()
+	if k == nil {
+		return timestampedEventInfo{}, ErrNoSuchEvent
+	}
+
+	lastEv := timestampedEventInfo{}
+	if err := json.Unmarshal(lastEvJson, &lastEv); err != nil {
+		return timestampedEventInfo{}, fmt.Errorf("Can't parse last event info (%v): %v", string(k), err)
+	}
+
+	return lastEv, nil
 }
 
 // update event details by comparing with last poll result (in bucket named
 // by session ID) and adding if different or if this is the first poll of
 // the event
-func updateEvent(eventsBucket *bolt.Bucket, ev EventInfo, evCtx EventContext, ts time.Time) error {
+func updateEvent(eventsBucket *bolt.Bucket, evCtx EventContext, ev timestampedEventInfo) error {
 	b, err := eventsBucket.CreateBucketIfNotExists([]byte(ev.SessionId))
 	if err != nil {
 		return fmt.Errorf("Can't create bucket for session: %v", err)
@@ -153,13 +166,7 @@ func updateEvent(eventsBucket *bolt.Bucket, ev EventInfo, evCtx EventContext, ts
 
 	// Find last entry if it exists and deserialise it
 	// compare to current.  If different, append current
-	k, lastEvJson := b.Cursor().Last()
-	if k != nil {
-		lastEv := wrappedEventInfo{}
-		if err := json.Unmarshal(lastEvJson, &lastEv); err != nil {
-			return fmt.Errorf("Can't parse last event info (%v): %v", string(k), err)
-		}
-
+	if lastEv, err := getMostRecentDetails(b); err == nil {
 		// If all of these fields are the same, no need to write the new event
 		if ev.ProductName == lastEv.ProductName &&
 			ev.Location == lastEv.Location &&
@@ -176,10 +183,9 @@ func updateEvent(eventsBucket *bolt.Bucket, ev EventInfo, evCtx EventContext, ts
 		log.Println("Creating event info:", evCtx.Day, ev)
 	}
 
-	optionallyUpdateCalendar(ev, evCtx, ts)
+	optionallyUpdateCalendar(ev, evCtx)
 
-	wev := wrappedEventInfo{ev, ts}
-	evJson, err := json.Marshal(wev)
+	evJson, err := json.Marshal(ev)
 	if err != nil {
 		return fmt.Errorf("Can't marshal event info: %v", err)
 	}
