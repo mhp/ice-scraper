@@ -118,6 +118,9 @@ func checkEventsForDay(client *http.Client, b *bolt.Bucket, evCtx EventContext) 
 		return fmt.Errorf("Can't create 'events' bucket: %v", err)
 	}
 
+	// Record which session IDs we've seen, to work out if any have been cancelled
+	var sessionIdsSeen []string
+
 	for _, pid := range productsAvailable {
 		evCtx.Product = pid
 		evs, err := getEventsInfo(client, evCtx.Day, pid)
@@ -131,11 +134,50 @@ func checkEventsForDay(client *http.Client, b *bolt.Bucket, evCtx EventContext) 
 			if err := updateEvent(evBucket, evCtx, timestampedEventInfo{ev, now, false}); err != nil {
 				return fmt.Errorf("Can't write event: %v", err)
 			}
+			sessionIdsSeen = append(sessionIdsSeen, ev.SessionId)
+		}
+	}
+
+	// Now loop through the DB and see if any future events have been cancelled
+	now := time.Now()
+	sess := evBucket.Cursor()
+	for sid, _ := sess.First(); sid != nil; sid, _ = sess.Next() {
+		if evb := evBucket.Bucket(sid); evb != nil {
+			lastEv, err := getMostRecentDetails(evb)
+			if err != nil {
+				// No recent details, so nothing to cancel
+				break
+			}
+
+			if t, err := parseTimeLocally(evCtx.Day, lastEv.StartTime); err == nil {
+
+				// Work out when now is in the same timezone as the event times
+				localNow := now.In(t.Location())
+				if t.Before(localNow) {
+					// Session already started, ignore it
+					break
+				}
+
+				if !isSessionInList(sessionIdsSeen, string(sid)) {
+					// Event not yet started, and missing from list -> cancelled!
+					if err := updateEvent(evBucket, evCtx, timestampedEventInfo{lastEv.EventInfo, now, true}); err != nil {
+						return fmt.Errorf("can't write event: %v", err)
+					}
+				}
+			}
 		}
 	}
 	return nil
 }
 
+func isSessionInList(seen []string, sessId string) bool {
+	for _, id := range seen {
+		if id == sessId {
+			return true
+		}
+	}
+	return false
+}
 
 var ErrNoSuchEvent = errors.New("no such event")
 
@@ -175,7 +217,8 @@ func updateEvent(eventsBucket *bolt.Bucket, evCtx EventContext, ev timestampedEv
 			ev.TotalSpaces == lastEv.TotalSpaces &&
 			ev.AvailableSpaces == lastEv.AvailableSpaces &&
 			ev.CapacityFreeAcademy == lastEv.CapacityFreeAcademy &&
-			ev.AvailableFreeSpaces == lastEv.AvailableFreeSpaces {
+			ev.AvailableFreeSpaces == lastEv.AvailableFreeSpaces &&
+			ev.Cancelled == lastEv.Cancelled {
 			return nil
 		}
 		log.Println("Updating event info:", evCtx.Day, ev)

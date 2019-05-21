@@ -34,6 +34,7 @@ type GCalEvent struct {
 	End struct {
 		DateTime time.Time `json:"dateTime,omitempty"`
 	} `json:"end,omitempty"`
+	Status string `json:"status,omitempty"`
 }
 
 // referenceDate is a parse string to let us parse the
@@ -100,6 +101,10 @@ func makeGCalEvent(ev timestampedEventInfo, evCtx EventContext) (*GCalEvent, err
 		return nil, errors.Wrap(err, "parsng event end time")
 	}
 	newEvent.End.DateTime = endTime
+
+	if ev.Cancelled {
+		newEvent.Status = "cancelled"
+	}
 
 	return &newEvent, nil
 }
