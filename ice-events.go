@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -210,20 +211,12 @@ func updateEvent(eventsBucket *bolt.Bucket, evCtx EventContext, ev timestampedEv
 	// compare to current.  If different, append current
 	if lastEv, err := getMostRecentDetails(b); err == nil {
 		// If all of these fields are the same, no need to write the new event
-		if ev.ProductName == lastEv.ProductName &&
-			ev.Location == lastEv.Location &&
-			ev.StartTime == lastEv.StartTime &&
-			ev.EndTime == lastEv.EndTime &&
-			ev.TotalSpaces == lastEv.TotalSpaces &&
-			ev.AvailableSpaces == lastEv.AvailableSpaces &&
-			ev.CapacityFreeAcademy == lastEv.CapacityFreeAcademy &&
-			ev.AvailableFreeSpaces == lastEv.AvailableFreeSpaces &&
-			ev.Cancelled == lastEv.Cancelled {
+		if eventsSimilar(ev, lastEv) {
 			return nil
 		}
-		log.Println("Updating event info:", evCtx.Day, ev)
+		log.Println("Updating event info:", evCtx.Day, ev.StartTime, ev.ProductName, eventDiff(lastEv, ev))
 	} else {
-		log.Println("Creating event info:", evCtx.Day, ev)
+		log.Println("Creating event info:", evCtx.Day, ev.EventInfo)
 	}
 
 	optionallyUpdateCalendar(ev, evCtx)
@@ -240,4 +233,61 @@ func updateEvent(eventsBucket *bolt.Bucket, evCtx EventContext, ev timestampedEv
 
 	// Save this event info
 	return b.Put(newKey, evJson)
+}
+
+func eventsSimilar(a, b timestampedEventInfo) bool {
+	if a.ProductName == b.ProductName &&
+		a.Location == b.Location &&
+		a.StartTime == b.StartTime &&
+		a.EndTime == b.EndTime &&
+		a.TotalSpaces == b.TotalSpaces &&
+		a.AvailableSpaces == b.AvailableSpaces &&
+		a.CapacityFreeAcademy == b.CapacityFreeAcademy &&
+		a.AvailableFreeSpaces == b.AvailableFreeSpaces &&
+		a.Cancelled == b.Cancelled {
+		return true
+	}
+	return false
+}
+
+func eventDiff(orig, updated timestampedEventInfo) string {
+	var op []string
+
+	if orig.ProductName != updated.ProductName {
+		op = append(op, fmt.Sprintf("product %v --> %v", orig.ProductName, updated.ProductName))
+	}
+
+	if orig.Location != updated.Location {
+		op = append(op, fmt.Sprintf("location %v --> %v", orig.Location, updated.Location))
+	}
+
+	if orig.StartTime != updated.StartTime {
+		op = append(op, fmt.Sprintf("start %v --> %v", orig.StartTime, updated.StartTime))
+	}
+
+	if orig.EndTime != updated.EndTime {
+		op = append(op, fmt.Sprintf("end %v --> %v", orig.EndTime, updated.EndTime))
+	}
+
+	if orig.TotalSpaces != updated.TotalSpaces {
+		op = append(op, fmt.Sprintf("capacity %v --> %v", orig.TotalSpaces, updated.TotalSpaces))
+	}
+
+	if orig.AvailableSpaces != updated.AvailableSpaces {
+		op = append(op, fmt.Sprintf("free %v --> %v", orig.AvailableSpaces, updated.AvailableSpaces))
+	}
+
+	if orig.CapacityFreeAcademy != updated.CapacityFreeAcademy {
+		op = append(op, fmt.Sprintf("academy capacity %v --> %v", orig.CapacityFreeAcademy, updated.CapacityFreeAcademy))
+	}
+
+	if orig.AvailableFreeSpaces != updated.AvailableFreeSpaces {
+		op = append(op, fmt.Sprintf("academy free %v --> %v", orig.AvailableFreeSpaces, updated.AvailableFreeSpaces))
+	}
+
+	if orig.Cancelled != updated.Cancelled {
+		op = append(op, fmt.Sprintf("cancelled free %v --> %v", orig.Cancelled, updated.Cancelled))
+	}
+
+	return strings.Join(op, ", ")
 }
