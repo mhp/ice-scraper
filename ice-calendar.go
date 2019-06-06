@@ -92,7 +92,7 @@ type DaysWithIce map[time.Time][]ProductId
 func checkIceCalendar(c *http.Client, month time.Month, year int) (DaysWithIce, error) {
 	dwi := make(DaysWithIce)
 
-	for _, product := range products {
+	for _, product := range products() {
 		cal, err := getCalendar(c, month, year, product)
 		if err != nil {
 			return nil, fmt.Errorf("Can't get product calendar: %v", err)

@@ -8,19 +8,14 @@ import (
 	"github.com/boltdb/bolt"
 )
 
-var GCalCalendarId string
 var GCalClient *http.Client
 
 func setupGcalSync() {
 	gcalCredFile := os.Getenv("ICESCRAPER_GCAL_CRED_FILE")
 	gcalTokenFile := os.Getenv("ICESCRAPER_GCAL_TOKEN_FILE")
-	gcalCalendarId := os.Getenv("ICESCRAPER_GCAL_CALENDAR_ID")
 
-	// We need both authfile and calendar ID to work,
-	// but tokenfile is optional
-	if gcalCredFile != "" && gcalCalendarId != "" {
-		GCalCalendarId = gcalCalendarId
-
+	// We need the authfile but tokenfile is optional
+	if gcalCredFile != "" {
 		ga, err := NewAuthenticator(gcalCredFile, gcalTokenFile)
 		if err != nil {
 			log.Println("Can't create GCal client - no syncing", err)
@@ -31,6 +26,7 @@ func setupGcalSync() {
 }
 
 const DefaultDbName = "ice-info.db"
+const DefaultProductsName = "products.json"
 
 func main() {
 	if len(os.Args) != 2 {
@@ -49,6 +45,14 @@ func main() {
 	defer db.Close()
 
 	setupGcalSync()
+
+	prodFile := os.Getenv("ICESCRAPER_PRODUCTS_FILE")
+	if prodFile == "" {
+		prodFile = DefaultProductsName
+	}
+	if err := loadProducts(prodFile); err != nil {
+		log.Fatalln("Can't load products:", err)
+	}
 
 	switch os.Args[1] {
 

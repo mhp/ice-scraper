@@ -176,16 +176,22 @@ func optionallyUpdateCalendar(ev timestampedEventInfo, evCtx EventContext) {
 		return
 	}
 
+	prodCfg, ok := productsMap[evCtx.Product]
+	if !ok || prodCfg.GCal == "" {
+		log.Print("No calendar configured for", evCtx.Product)
+		return
+	}
+
 	calEv, err := makeGCalEvent(ev, evCtx)
 	if err != nil {
 		log.Print("Can't convert calendar event:", err)
 		return
 	}
 
-	err = updateCalendarEvent(GCalClient, GCalCalendarId, calEv)
+	err = updateCalendarEvent(GCalClient, prodCfg.GCal, calEv)
 	if err == ErrNotFound {
 		log.Print("Calendar event not found, inserting...")
-		err = insertCalendarEvent(GCalClient, GCalCalendarId, calEv)
+		err = insertCalendarEvent(GCalClient, prodCfg.GCal, calEv)
 	}
 
 	if err != nil {
