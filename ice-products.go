@@ -10,22 +10,22 @@ import (
 
 type ProductId string
 
-var productsMap map[ProductId]struct{GCal string}
+var productsMap map[ProductId]struct{ GCal string }
 
 func loadProducts(prodFile string) error {
-        f, err := os.Open(prodFile)
-        if err != nil {
-                return errors.Wrap(err, "opening products file")
-        }
-        defer f.Close()
+	f, err := os.Open(prodFile)
+	if err != nil {
+		return errors.Wrap(err, "opening products file")
+	}
+	defer f.Close()
 
-        prodsJson, err := ioutil.ReadAll(f)
-        if err != nil {
-                return errors.Wrap(err, "reading products file")
-        }
+	prodsJson, err := ioutil.ReadAll(f)
+	if err != nil {
+		return errors.Wrap(err, "reading products file")
+	}
 
-        if err := json.Unmarshal(prodsJson, &productsMap); err != nil {
-                return errors.Wrap(err, "parsing products file")
+	if err := json.Unmarshal(prodsJson, &productsMap); err != nil {
+		return errors.Wrap(err, "parsing products file")
 	}
 
 	return nil
